@@ -95,6 +95,14 @@ export default function LiveMicPage() {
   const restartTimerRef = useRef<NodeJS.Timeout | null>(null);
   const watchdogIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
+  // Independent Whisper STT Audio Recording State (Zero Google Dependency)
+  const [isRecordingAudio, setIsRecordingAudio] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const holdStartTimeRef = useRef<number>(0);
+  const sttErrorPermanentRef = useRef<boolean>(false);
+
   // State refs for access in callbacks
   const isListeningRef = useRef(isListening);
   isListeningRef.current = isListening;
@@ -320,23 +328,24 @@ export default function LiveMicPage() {
       setSttStatus("listening");
       setSttErrorMsg(null);
 
-      // Start Continuous Speech Recognition
+      // Start Continuous Speech Recognition (if supported)
       startSpeechRecognition();
 
-      // Start watchdog to keep STT alive
+      // Start watchdog to keep STT alive only when no permanent Google block
       if (watchdogIntervalRef.current) clearInterval(watchdogIntervalRef.current);
       watchdogIntervalRef.current = setInterval(() => {
         if (
           isListeningRef.current &&
           streamRef.current &&
           !isProcessingRef.current &&
-          !isPlayingAudioRef.current
+          !isPlayingAudioRef.current &&
+          !sttErrorPermanentRef.current
         ) {
           if (!recognitionRef.current) {
             startSpeechRecognition();
           }
         }
-      }, 1500);
+      }, 2000);
     } catch (err: any) {
       console.error("Microphone access error:", err);
       alert("Could not access microphone: " + (err.message || "Please check browser mic permissions."));
@@ -373,6 +382,12 @@ export default function LiveMicPage() {
       audioContextRef.current = null;
     }
     analyserRef.current = null;
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+      try {
+        mediaRecorderRef.current.stop();
+      } catch {}
+      mediaRecorderRef.current = null;
+    }
     setMicConnected(false);
     setIsListening(false);
     setMicVolume(0);
@@ -380,6 +395,99 @@ export default function LiveMicPage() {
     setSttStatus("idle");
     setCurrentUtterance("");
     setInterimText("");
+  };
+
+  // Independent Whisper & Gemini AI Audio Recording (Works in Brave, Safari, Firefox with 0 Google dependency)
+  const startRecordingAudio = async () => {
+    if (!streamRef.current) {
+      await connectMicrophone();
+    }
+    if (!streamRef.current) return;
+
+    if (isPlayingAudioRef.current) {
+      triggerBargeIn("WHISPER_RECORD_START");
+    }
+
+    try {
+      audioChunksRef.current = [];
+      const mimeType =
+        typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+          ? "audio/webm;codecs=opus"
+          : typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported("audio/webm")
+          ? "audio/webm"
+          : "audio/mp4";
+
+      const recorder = new MediaRecorder(streamRef.current, { mimeType });
+      recorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) {
+          audioChunksRef.current.push(e.data);
+        }
+      };
+      recorder.start(80);
+      mediaRecorderRef.current = recorder;
+      setIsRecordingAudio(true);
+      setSttStatus("speech_detected");
+      setInterimText("Recording voice with AI Speech Recognition...");
+    } catch (e) {
+      console.warn("MediaRecorder start notice:", e);
+    }
+  };
+
+  const stopRecordingAndTranscribe = () => {
+    const recorder = mediaRecorderRef.current;
+    if (!recorder || recorder.state === "inactive") {
+      setIsRecordingAudio(false);
+      return;
+    }
+
+    setIsRecordingAudio(false);
+    setIsTranscribing(true);
+    setInterimText("Transcribing speech with AI (Whisper / Gemini Flash)...");
+
+    recorder.onstop = async () => {
+      const audioBlob = new Blob(audioChunksRef.current, {
+        type: recorder.mimeType || "audio/webm",
+      });
+
+      if (audioBlob.size < 400) {
+        setIsTranscribing(false);
+        setSttStatus("listening");
+        setInterimText("");
+        return;
+      }
+
+      setSttStatus("speech_detected");
+      try {
+        const formData = new FormData();
+        formData.append("audio", audioBlob, "voice_input.webm");
+
+        const res = await fetch("/api/stt", {
+          method: "POST",
+          body: formData,
+        }).then((r) => r.json());
+
+        if (res.success && res.transcript && res.transcript.trim()) {
+          const transcribed = res.transcript.trim();
+          setCurrentUtterance(transcribed);
+          setInterimText("");
+          handleExecuteVoiceTurn(transcribed);
+        } else if (res.error) {
+          console.warn("AI STT notice:", res.error);
+          setSttErrorMsg(res.error);
+          setInterimText("");
+        }
+      } catch (err: any) {
+        console.error("AI STT transcription error:", err);
+        setSttErrorMsg("Transcription failed. Please try speaking again.");
+        setInterimText("");
+      } finally {
+        setIsTranscribing(false);
+      }
+    };
+
+    try {
+      recorder.stop();
+    } catch {}
   };
 
   // Configure and start Web Speech Recognition
@@ -469,8 +577,9 @@ export default function LiveMicPage() {
         }
         console.warn("Speech recognition notice:", event.error);
         if (event.error === "network") {
-          setSttStatus("error");
-          setSttErrorMsg("Speech network service notice. Click Retry Speech Connection or speak again.");
+          sttErrorPermanentRef.current = true;
+          setSttStatus("idle");
+          setSttErrorMsg("Brave / Network Policy: Browser speech servers unavailable. Use the Hold to Speak (AI STT) button below!");
           return;
         }
         if (event.error === "not-allowed") {
@@ -480,11 +589,15 @@ export default function LiveMicPage() {
       };
 
       recognition.onend = () => {
+        if (sttErrorPermanentRef.current) {
+          setSttStatus("idle");
+          return;
+        }
         // Safely restart recognition with microtask delay to prevent Chrome InvalidStateError
         if (isListeningRef.current && streamRef.current) {
           if (restartTimerRef.current) clearTimeout(restartTimerRef.current);
           restartTimerRef.current = setTimeout(() => {
-            if (isListeningRef.current && streamRef.current && !isPlayingAudioRef.current) {
+            if (isListeningRef.current && streamRef.current && !isPlayingAudioRef.current && !sttErrorPermanentRef.current) {
               try {
                 recognition.start();
                 setSttStatus("listening");
@@ -879,49 +992,47 @@ export default function LiveMicPage() {
         </div>
       )}
 
-      {/* STT Notice / Warning Banner with Browser-Specific Fix */}
+      {/* STT Notice / Info Banner for Brave & Non-Google Browsers */}
       {sttErrorMsg && (
-        <div className="p-4 rounded-xl bg-zinc-900 border border-amber-500/40 text-zinc-200 text-sm space-y-2.5">
+        <div className="p-4 rounded-xl bg-zinc-950 border border-cyan-500/40 text-zinc-200 text-sm space-y-3 shadow-[0_0_30px_rgba(0,240,255,0.12)]">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-zinc-800/80 pb-2">
-            <div className="flex items-center gap-2.5 font-semibold text-amber-300">
-              <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0" />
-              <span>Browser Speech Recognition Network Blocked</span>
+            <div className="flex items-center gap-2.5 font-semibold text-[#00F0FF]">
+              <Sparkles className="w-5 h-5 text-[#00F0FF] shrink-0" />
+              <span>Brave &amp; Google-Free Speech Recognition Ready</span>
             </div>
             <button
               onClick={() => {
                 setSttErrorMsg(null);
-                setSttStatus("listening");
-                startSpeechRecognition();
               }}
-              className="px-3 py-1 rounded bg-zinc-800 text-xs font-sfmono text-zinc-200 hover:bg-zinc-700 hover:text-white border border-zinc-700 transition-colors flex items-center gap-1.5 self-start sm:self-auto"
+              className="px-3 py-1 rounded bg-zinc-900 text-xs font-sfmono text-zinc-300 hover:bg-zinc-800 hover:text-white border border-zinc-700 transition-colors self-start sm:self-auto"
             >
-              <RotateCcw className="w-3 h-3" />
-              Retry Speech Connection
+              Dismiss
             </button>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs text-zinc-400">
-            <div className="p-2.5 rounded bg-zinc-950/70 border border-zinc-800/80 space-y-1">
-              <span className="font-semibold text-zinc-200 block">🦁 If you are using Brave Browser:</span>
-              <p>
-                Brave blocks Google's speech server by default. To enable: go to{" "}
-                <code className="px-1 py-0.5 rounded bg-zinc-800 text-white font-sfmono">brave://settings/system</code>{" "}
-                and toggle <strong className="text-zinc-200">"Use Google services for speech recognition"</strong> to ON, then click Retry above.
+            <div className="p-3 rounded-lg bg-zinc-900/80 border border-zinc-800 space-y-1.5">
+              <span className="font-semibold text-zinc-200 flex items-center gap-1.5">
+                🦁 Why is Google Speech missing in Brave?
+              </span>
+              <p className="text-zinc-300 leading-relaxed">
+                Brave removes Google Speech Recognition by design for privacy. The old toggle in settings is no longer available in modern Brave versions.
               </p>
             </div>
-            <div className="p-2.5 rounded bg-zinc-950/70 border border-zinc-800/80 space-y-1">
-              <span className="font-semibold text-zinc-200 block">🌐 If you are using Chrome or Edge:</span>
-              <p>
-                Ensure you are not in an Incognito window, and in Windows Settings verify that{" "}
-                <strong className="text-zinc-200">Online speech recognition</strong> is turned ON.
+            <div className="p-3 rounded-lg bg-cyan-950/30 border border-cyan-800/40 space-y-1.5">
+              <span className="font-semibold text-[#00F0FF] flex items-center gap-1.5">
+                ⚡ Solution: Native Whisper / Gemini AI Audio
+              </span>
+              <p className="text-zinc-300 leading-relaxed">
+                VoiceTrace captures your microphone stream directly via HTML5 MediaRecorder and transcribes it using our serverless AI endpoint—with <strong>zero reliance on Google speech servers</strong>!
               </p>
             </div>
           </div>
 
-          <div className="text-xs text-zinc-400 flex items-center gap-1.5 pt-1">
+          <div className="text-xs text-zinc-400 flex items-center gap-2 pt-1 font-sfmono">
             <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
             <span>
-              <strong>Note:</strong> You can click any <strong>Quick Voice Command</strong> button below or type a command to immediately test live Rime audio synthesis!
+              Use the glowing cyan <strong className="text-white">"Hold or Click to Speak (Whisper AI)"</strong> button below to talk freely in Brave, Chrome, Safari, or Firefox!
             </span>
           </div>
         </div>
@@ -1021,23 +1132,98 @@ export default function LiveMicPage() {
 
             {/* Primary Action Button */}
             <div className="space-y-3">
+              {/* Prominent Whisper & Gemini AI Hold-to-Speak Button */}
+              <button
+                type="button"
+                onMouseDown={async (e) => {
+                  e.preventDefault();
+                  holdStartTimeRef.current = Date.now();
+                  if (!micConnected) {
+                    await connectMicrophone();
+                  }
+                  startRecordingAudio();
+                }}
+                onMouseUp={(e) => {
+                  e.preventDefault();
+                  const duration = Date.now() - (holdStartTimeRef.current || 0);
+                  if (duration >= 250) {
+                    stopRecordingAndTranscribe();
+                  }
+                }}
+                onTouchStart={async (e) => {
+                  holdStartTimeRef.current = Date.now();
+                  if (!micConnected) {
+                    await connectMicrophone();
+                  }
+                  startRecordingAudio();
+                }}
+                onTouchEnd={(e) => {
+                  const duration = Date.now() - (holdStartTimeRef.current || 0);
+                  if (duration >= 250) {
+                    stopRecordingAndTranscribe();
+                  }
+                }}
+                onClick={(e) => {
+                  e.preventDefault();
+                  const duration = Date.now() - (holdStartTimeRef.current || 0);
+                  // If it was a quick click (< 250ms), toggle recording on/off
+                  if (duration < 250) {
+                    if (isRecordingAudio) {
+                      stopRecordingAndTranscribe();
+                    } else {
+                      if (!micConnected) {
+                        connectMicrophone().then(() => startRecordingAudio());
+                      } else {
+                        startRecordingAudio();
+                      }
+                    }
+                  }
+                }}
+                disabled={isTranscribing || isProcessing}
+                className={`w-full py-4 px-4 rounded-xl font-bold text-base flex items-center justify-center gap-3 transition-all select-none cursor-pointer ${
+                  isRecordingAudio
+                    ? "bg-gradient-to-r from-red-500 via-rose-500 to-amber-500 text-white animate-pulse shadow-[0_0_30px_rgba(239,68,68,0.7)] scale-[1.02]"
+                    : isTranscribing
+                    ? "bg-indigo-600/60 text-indigo-100 border border-indigo-500/50 animate-pulse"
+                    : "bg-gradient-to-r from-[#00F0FF] via-[#2CC3E9] to-[#00D1FF] hover:from-white hover:to-white text-zinc-950 shadow-[0_0_25px_rgba(0,240,255,0.45)] hover:shadow-[0_0_35px_rgba(255,255,255,0.6)]"
+                }`}
+              >
+                {isTranscribing ? (
+                  <>
+                    <RotateCcw className="w-5 h-5 animate-spin text-indigo-200" />
+                    <span>Transcribing with AI Speech Recognition...</span>
+                  </>
+                ) : isRecordingAudio ? (
+                  <>
+                    <div className="w-4 h-4 rounded-full bg-white animate-ping shrink-0" />
+                    <span>Recording Voice... (Release or Click to Send)</span>
+                  </>
+                ) : (
+                  <>
+                    <Mic className="w-5 h-5 fill-current" />
+                    <span>Hold or Click to Speak (Whisper AI • Works in Brave)</span>
+                  </>
+                )}
+              </button>
+
+              {/* Hardware Mic Stream Connection Button */}
               <button
                 onClick={connectMicrophone}
-                className={`w-full py-3.5 px-4 rounded-xl font-bold text-base flex items-center justify-center gap-3 transition-all ${
+                className={`w-full py-2.5 px-4 rounded-lg font-medium text-xs flex items-center justify-center gap-2 transition-all border ${
                   micConnected
-                    ? "bg-red-500/20 text-red-300 hover:bg-red-500/30 border border-red-500/40 shadow-[0_0_20px_-4px_rgba(239,68,68,0.3)]"
-                    : "bg-[#2CC3E9] hover:bg-[#00F0FF] text-zinc-950 shadow-[0_0_25px_-4px_rgba(44,195,233,0.5)]"
+                    ? "bg-zinc-900/80 text-red-400 hover:bg-red-950/40 border-zinc-800 hover:border-red-800/60"
+                    : "bg-zinc-900/80 text-zinc-300 hover:text-white border-zinc-800 hover:border-zinc-700"
                 }`}
               >
                 {micConnected ? (
                   <>
-                    <MicOff className="w-5 h-5" />
-                    Disconnect Microphone
+                    <MicOff className="w-4 h-4 text-red-400" />
+                    <span>Microphone Stream Connected • Click to Disconnect</span>
                   </>
                 ) : (
                   <>
-                    <Mic className="w-5 h-5" />
-                    Connect Microphone &amp; Start Listening
+                    <Radio className="w-4 h-4 text-[#00F0FF]" />
+                    <span>Microphone Idle • Click to Connect Continuous Audio Stream</span>
                   </>
                 )}
               </button>
@@ -1062,7 +1248,11 @@ export default function LiveMicPage() {
                   Live Mic Stream &amp; STT
                 </span>
                 <span className="font-sfmono text-zinc-500">
-                  {sttStatus === "speech_detected"
+                  {isRecordingAudio
+                    ? "Recording..."
+                    : isTranscribing
+                    ? "Transcribing..."
+                    : sttStatus === "speech_detected"
                     ? "Speaking..."
                     : isListening
                     ? "Listening..."
@@ -1074,15 +1264,25 @@ export default function LiveMicPage() {
               <div className="min-h-[56px] text-sm text-zinc-200 font-sfmono flex items-center bg-zinc-900/60 p-2.5 rounded border border-zinc-800">
                 {currentUtterance ? (
                   <span className="text-white font-medium">"{currentUtterance}"</span>
+                ) : isTranscribing ? (
+                  <span className="text-indigo-300 flex items-center gap-2 animate-pulse">
+                    <RotateCcw className="w-4 h-4 animate-spin" />
+                    Transcribing speech with AI...
+                  </span>
+                ) : isRecordingAudio ? (
+                  <span className="text-amber-300 flex items-center gap-2 animate-pulse">
+                    <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-ping"></span>
+                    Recording your voice... Release or click button to send.
+                  </span>
                 ) : interimText ? (
                   <span className="text-zinc-300 italic">"{interimText}..."</span>
                 ) : isListening ? (
-                  <span className="text-zinc-600">
-                    Listening for your voice. Speak your command now...
+                  <span className="text-zinc-500">
+                    Microphone active. Hold or click the cyan button above to speak.
                   </span>
                 ) : (
                   <span className="text-zinc-600">
-                    Microphone disconnected. Click "Connect Microphone" above.
+                    Microphone idle. Click "Hold or Click to Speak" above.
                   </span>
                 )}
               </div>
