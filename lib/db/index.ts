@@ -2,6 +2,7 @@ import { PGlite } from "@electric-sql/pglite";
 import pg from "pg";
 import fs from "fs";
 import path from "path";
+import os from "os";
 
 export interface DbQueryResult<T = any> {
   rows: T[];
@@ -87,7 +88,14 @@ export async function getDb(): Promise<DbClient> {
     }
 
     // Default to embedded WASM PostgreSQL via PGlite
-    const dataDir = process.env.DATA_DIR || path.resolve(process.cwd(), "data");
+    const isServerless = Boolean(
+      process.env.VERCEL ||
+      process.env.AWS_LAMBDA_FUNCTION_NAME ||
+      process.env.NETLIFY
+    );
+    const dataDir = isServerless
+      ? path.join(os.tmpdir(), "voicetrace_data")
+      : (process.env.DATA_DIR || path.resolve(process.cwd(), "data"));
     const subDir = process.env.NODE_ENV === "test" ? "pgdata_test" : "pgdata";
     const pgDataDir = path.resolve(dataDir, subDir);
 

@@ -1,18 +1,44 @@
 import fs from "fs";
 import path from "path";
+import os from "os";
 import crypto from "crypto";
 import { query } from "../db";
 import { TTSResult } from "../providers/tts";
 import { AudioArtifact } from "../db/types";
 
+// In-memory global cache for serverless environments (Vercel, AWS Lambda) where disk is read-only
+const globalAudioCache = new Map<string, Buffer>();
+
 class AudioArtifactStore {
   private getStorageDir(): string {
-    const baseDir = process.env.DATA_DIR || path.resolve(process.cwd(), "data");
+    const isServerless = Boolean(
+      process.env.VERCEL ||
+      process.env.AWS_LAMBDA_FUNCTION_NAME ||
+      process.env.NETLIFY
+    );
+
+    // On Vercel / Serverless, /var/task is strictly read-only. The only writable dir is os.tmpdir() (/tmp)
+    const baseDir = isServerless
+      ? path.join(os.tmpdir(), "voicetrace_data")
+      : (process.env.DATA_DIR || path.resolve(process.cwd(), "data"));
+
     const audioDir = path.resolve(baseDir, "audio");
-    if (!fs.existsSync(audioDir)) {
-      fs.mkdirSync(audioDir, { recursive: true });
+
+    try {
+      if (!fs.existsSync(audioDir)) {
+        fs.mkdirSync(audioDir, { recursive: true });
+      }
+      return audioDir;
+    } catch {
+      // Fallback directly to os.tmpdir()
+      const fallbackDir = path.join(os.tmpdir(), "voicetrace_audio");
+      try {
+        if (!fs.existsSync(fallbackDir)) {
+          fs.mkdirSync(fallbackDir, { recursive: true });
+        }
+      } catch {}
+      return fallbackDir;
     }
-    return audioDir;
   }
 
   async saveArtifact(
@@ -27,10 +53,20 @@ class AudioArtifactStore {
     const artifactId = `art_${crypto.randomBytes(12).toString("hex")}`;
     const ext = ttsResult.audioFormat === "wav" ? "wav" : "mp3";
     const fileName = `${artifactId}.${ext}`;
-    const filePath = path.resolve(this.getStorageDir(), fileName);
 
-    // Write binary audio file to disk
-    fs.writeFileSync(filePath, ttsResult.audioBuffer);
+    // Always cache in memory first for zero-latency serverless delivery
+    if (ttsResult.audioBuffer) {
+      globalAudioCache.set(artifactId, ttsResult.audioBuffer);
+    }
+
+    // Attempt to write to disk, but never crash the turn if filesystem is restricted
+    try {
+      const storageDir = this.getStorageDir();
+      const filePath = path.resolve(storageDir, fileName);
+      fs.writeFileSync(filePath, ttsResult.audioBuffer);
+    } catch (fsErr) {
+      console.warn("Audio disk write skipped in serverless environment (using in-memory cache):", fsErr);
+    }
 
     const storageUrl = `/api/audio/${artifactId}`;
     const generatedAt = ttsResult.requestTimestamp;
@@ -98,12 +134,22 @@ class AudioArtifactStore {
     }
 
     const artifact = res.rows[0];
-    const ext = artifact.audio_format === "wav" ? "wav" : "mp3";
-    const filePath = path.resolve(this.getStorageDir(), `${id}.${ext}`);
 
-    let buffer: Buffer | undefined;
-    if (fs.existsSync(filePath)) {
-      buffer = fs.readFileSync(filePath);
+    // Check in-memory cache first
+    let buffer = globalAudioCache.get(id);
+
+    // Fallback to disk if not in memory
+    if (!buffer) {
+      try {
+        const ext = artifact.audio_format === "wav" ? "wav" : "mp3";
+        const filePath = path.resolve(this.getStorageDir(), `${id}.${ext}`);
+        if (fs.existsSync(filePath)) {
+          buffer = fs.readFileSync(filePath);
+          globalAudioCache.set(id, buffer);
+        }
+      } catch (e) {
+        console.warn("Failed to read audio from disk:", e);
+      }
     }
 
     return { artifact, buffer };
