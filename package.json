@@ -1,0 +1,46 @@
+{
+  "name": "voicetrace",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Developer observability and regression platform for realtime voice agents",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:unit": "vitest run tests/unit",
+    "test:integration": "vitest run tests/integration",
+    "test:voice": "vitest run tests/voice",
+    "test:interruption": "tsx scripts/test-interruption.ts",
+    "replay": "tsx scripts/replay.ts",
+    "demo:voice": "tsx scripts/demo-voice.ts",
+    "evaluate": "tsx scripts/evaluate.ts",
+    "db:migrate": "tsx scripts/db-migrate.ts",
+    "db:seed": "tsx scripts/db-seed.ts"
+  },
+  "dependencies": {
+    "@electric-sql/pglite": "^0.2.16",
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.475.0",
+    "next": "^14.2.24",
+    "pg": "^8.13.3",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "tailwind-merge": "^2.6.0",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.5",
+    "@types/pg": "^8.11.11",
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.5.3",
+    "tailwindcss": "^3.4.17",
+    "tsx": "^4.19.3",
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.9"
+  }
+}
