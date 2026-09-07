@@ -14,7 +14,7 @@ import {
   Cpu,
   Layers,
   Sparkles,
-  Mic,
+  AudioLines,
   Volume2,
   Shield,
   Zap,
@@ -127,7 +127,7 @@ export default function CommandCenterPage() {
                 href="/live"
                 className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#00F0FF] to-[#2CC3E9] text-zinc-950 text-sm font-bold flex items-center gap-2 transition-all shadow-[0_0_25px_-2px_rgba(0,240,255,0.6),inset_0_1px_1px_rgba(255,255,255,0.4)] hover:shadow-[0_0_35px_0_rgba(0,240,255,0.85)] hover:scale-[1.02]"
               >
-                <Mic className="w-4 h-4 fill-zinc-950" />
+                <AudioLines className="w-4 h-4" />
                 Open Live Studio
               </Link>
               <button

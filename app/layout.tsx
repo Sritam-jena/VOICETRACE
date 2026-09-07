@@ -1,6 +1,7 @@
 import "./globals.css";
 import type { Metadata } from "next";
 import { Navbar } from "@/components/Navbar";
+import { AuthProvider } from "@/lib/auth/context";
 
 export const metadata: Metadata = {
   title: "VoiceTrace — Realtime Voice Agent Observability",
@@ -16,13 +17,15 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark">
       <body className="bg-[#09090b] text-[#f4f4f5] min-h-screen antialiased selection:bg-[#2CC3E9]/30 selection:text-white flex flex-col">
-        {/* Floating Centered Top Navigation Bar with Reactive Blue Dot */}
-        <Navbar />
+        <AuthProvider>
+          {/* Floating Centered Top Navigation Bar with Reactive Blue Dot */}
+          <Navbar />
 
-        {/* Centered Main Viewport (No Left Sidebar Bias) */}
-        <main className="flex-1 w-full max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-          {children}
-        </main>
+          {/* Centered Main Viewport (No Left Sidebar Bias) */}
+          <main className="flex-1 w-full max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+            {children}
+          </main>
+        </AuthProvider>
 
         {/* Minimal Footer */}
         <footer className="w-full border-t border-white/5 py-6 text-center text-xs text-zinc-500">

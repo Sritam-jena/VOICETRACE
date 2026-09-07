@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import {
-  Mic,
+  AudioLines,
   Cpu,
   Shield,
   Volume2,
@@ -50,7 +50,7 @@ const PIPELINE_NODES: PipelineNode[] = [
     number: 2,
     title: "VAD & Speech Recognition",
     subtitle: "Continuous Sentence Accumulator",
-    icon: Mic,
+    icon: AudioLines,
     latencyBudget: "550ms pause",
     description:
       "Web Speech API with automated silence auto-commit (550ms) and continuous watchdog recovery. Prevents premature sentence cutoffs while maintaining snappy turn-taking.",
@@ -63,21 +63,21 @@ const PIPELINE_NODES: PipelineNode[] = [
     color: "#00F0FF",
   },
   {
-    id: "gemini",
+    id: "qwen",
     number: 3,
-    title: "Real Gemini AI Brain",
+    title: "Qwen 2.5 AI Brain",
     subtitle: "Generative Reasoning Engine",
     icon: Sparkles,
-    latencyBudget: "400 - 800ms",
+    latencyBudget: "300 - 600ms",
     description:
-      "Full generative conversational intelligence powered by Google Gemini (gemini-flash-latest). Understands arbitrary questions, reasons over context, and invokes tools.",
+      "Full generative conversational intelligence powered by Qwen 2.5 (qwen-plus & qwen2.5-72b). Understands arbitrary questions, reasons over context, and invokes tools.",
     technicalSpecs: [
-      "Gemini flash REST runtime",
-      "Spoken voice sanitization (code-to-speech translation)",
-      "Zero API key leakage client-side architecture",
+      "Qwen 2.5 REST runtime",
+      "LiveKit low-latency audio streaming",
+      "Zero API key exposure client-side architecture",
       "Structured function calling for booking & query tools",
     ],
-    color: "#8B5CF6",
+    color: "#00F0FF",
   },
   {
     id: "guard",
@@ -242,7 +242,7 @@ export function InteractivePipelineMap() {
                 ? "Observed-Output Consistency"
                 : activeNode.id === "rime"
                 ? "Sub-100ms Neural TTFB"
-                : activeNode.id === "gemini"
+                : activeNode.id === "qwen"
                 ? "Contextual Reasoning"
                 : activeNode.id === "dsp"
                 ? "No Acoustic Saturation"

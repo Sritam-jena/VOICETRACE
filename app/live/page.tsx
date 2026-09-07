@@ -3,8 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
-  Mic,
-  MicOff,
+  AudioLines,
   Volume2,
   VolumeX,
   Zap,
@@ -397,7 +396,7 @@ export default function LiveMicPage() {
     setInterimText("");
   };
 
-  // Independent Whisper & Gemini AI Audio Recording (Works in Brave, Safari, Firefox with 0 Google dependency)
+  // Independent LiveKit & Qwen Audio Processing (Zero Google Dependency)
   const startRecordingAudio = async () => {
     if (!streamRef.current) {
       await connectMicrophone();
@@ -442,7 +441,7 @@ export default function LiveMicPage() {
 
     setIsRecordingAudio(false);
     setIsTranscribing(true);
-    setInterimText("Transcribing speech with AI (Whisper / Gemini Flash)...");
+    setInterimText("Transcribing speech with Qwen AI...");
 
     recorder.onstop = async () => {
       const audioBlob = new Blob(audioChunksRef.current, {
@@ -900,28 +899,21 @@ export default function LiveMicPage() {
         <div>
           <div className="flex flex-wrap items-center gap-3">
             <h1 className="text-3xl font-bold tracking-tight text-white flex items-center gap-3">
-              <Mic className="w-7 h-7 text-white" />
+              <AudioLines className="w-7 h-7 text-[#00F0FF]" />
               Live Microphone Studio
             </h1>
             <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold uppercase bg-emerald-950 text-emerald-300 border border-emerald-800 flex items-center gap-1.5 font-sfmono">
               <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
               Voice: Rime Coda
             </span>
-            {llmStatus.configured ? (
-              <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold uppercase bg-blue-950 text-blue-300 border border-blue-800 flex items-center gap-1.5 font-sfmono">
-                <Sparkles className="w-3.5 h-3.5 text-blue-400" />
-                Brain: {llmStatus.provider?.toUpperCase()} AI
-              </span>
-            ) : (
-              <Link
-                href="/settings"
-                className="px-2.5 py-0.5 rounded-full text-xs font-semibold uppercase bg-amber-950/80 hover:bg-amber-900 text-amber-300 border border-amber-800 flex items-center gap-1.5 font-sfmono transition-colors"
-                title="Click to connect free Gemini or Groq key for unrestricted generative AI"
-              >
-                <Sparkles className="w-3.5 h-3.5 text-amber-400 animate-pulse" />
-                Brain: Script Fallback (Add Free Key ↗)
-              </Link>
-            )}
+            <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold uppercase bg-cyan-950 text-cyan-300 border border-cyan-800 flex items-center gap-1.5 font-sfmono">
+              <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
+              Brain: QWEN 2.5 AI
+            </span>
+            <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold uppercase bg-purple-950 text-purple-300 border border-purple-800 flex items-center gap-1.5 font-sfmono">
+              <Radio className="w-3.5 h-3.5 text-purple-400" />
+              Transport: LiveKit
+            </span>
           </div>
           <p className="text-base text-zinc-400 mt-1">
             Speak natural voice commands directly through your microphone. Experience live Rime speech synthesis and sub-35ms barge-in interruption.
@@ -953,24 +945,6 @@ export default function LiveMicPage() {
           )}
         </div>
       </div>
-
-      {/* Script Mode Notice (Quick Link to activate LLM Brain) */}
-      {!llmStatus.configured && (
-        <div className="p-3.5 rounded-lg border border-amber-900/60 bg-amber-950/20 text-xs text-zinc-300 flex flex-col sm:flex-row sm:items-center justify-between gap-3 font-sfmono">
-          <div className="flex items-center gap-2.5">
-            <Sparkles className="w-4 h-4 text-amber-400 shrink-0" />
-            <span className="font-sans">
-              <strong className="text-amber-200 font-sfmono">Want Astra to fix code, solve problems, and answer anything?</strong> Astra is currently in local conversation mode. Add a 100% free Gemini or Groq key in Settings to activate her full generative AI brain.
-            </span>
-          </div>
-          <Link
-            href="/settings"
-            className="px-3 py-1.5 rounded bg-amber-400 hover:bg-amber-300 text-zinc-950 font-bold text-xs uppercase tracking-wider shrink-0 text-center transition-all shadow-sm"
-          >
-            Activate AI Brain ↗
-          </Link>
-        </div>
-      )}
 
       {/* Barge-In Alert Banner */}
       {bargeInAlert && (
@@ -1021,7 +995,7 @@ export default function LiveMicPage() {
             </div>
             <div className="p-3 rounded-lg bg-cyan-950/30 border border-cyan-800/40 space-y-1.5">
               <span className="font-semibold text-[#00F0FF] flex items-center gap-1.5">
-                ⚡ Solution: Native Whisper / Gemini AI Audio
+                ⚡ Solution: Native LiveKit & Qwen AI Audio
               </span>
               <p className="text-zinc-300 leading-relaxed">
                 VoiceTrace captures your microphone stream directly via HTML5 MediaRecorder and transcribes it using our serverless AI endpoint—with <strong>zero reliance on Google speech servers</strong>!
@@ -1032,7 +1006,7 @@ export default function LiveMicPage() {
           <div className="text-xs text-zinc-400 flex items-center gap-2 pt-1 font-sfmono">
             <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
             <span>
-              Use the glowing cyan <strong className="text-white">"Hold or Click to Speak (Whisper AI)"</strong> button below to talk freely in Brave, Chrome, Safari, or Firefox!
+              Use the glowing cyan <strong className="text-white">"Hold or Click to Speak"</strong> button below to talk freely in any browser!
             </span>
           </div>
         </div>
@@ -1132,7 +1106,7 @@ export default function LiveMicPage() {
 
             {/* Primary Action Button */}
             <div className="space-y-3">
-              {/* Prominent Whisper & Gemini AI Hold-to-Speak Button */}
+              {/* Prominent Qwen AI Hold-to-Speak Button */}
               <button
                 type="button"
                 onMouseDown={async (e) => {
@@ -1200,8 +1174,8 @@ export default function LiveMicPage() {
                   </>
                 ) : (
                   <>
-                    <Mic className="w-5 h-5 fill-current" />
-                    <span>Hold or Click to Speak (Whisper AI • Works in Brave)</span>
+                    <AudioLines className="w-5 h-5" />
+                    <span>Hold or Click to Speak</span>
                   </>
                 )}
               </button>
@@ -1217,13 +1191,13 @@ export default function LiveMicPage() {
               >
                 {micConnected ? (
                   <>
-                    <MicOff className="w-4 h-4 text-red-400" />
-                    <span>Microphone Stream Connected • Click to Disconnect</span>
+                    <VolumeX className="w-4 h-4 text-red-400" />
+                    <span>Audio Stream Connected • Click to Disconnect</span>
                   </>
                 ) : (
                   <>
-                    <Radio className="w-4 h-4 text-[#00F0FF]" />
-                    <span>Microphone Idle • Click to Connect Continuous Audio Stream</span>
+                    <AudioLines className="w-4 h-4 text-[#00F0FF]" />
+                    <span>Audio Stream Idle • Click to Connect Continuous Audio Stream</span>
                   </>
                 )}
               </button>
@@ -1462,7 +1436,7 @@ export default function LiveMicPage() {
               {conversation.length === 0 ? (
                 <div className="h-full flex flex-col items-center justify-center text-center p-6 text-zinc-500 space-y-3">
                   <div className="w-12 h-12 rounded-full border border-zinc-800 bg-zinc-900 flex items-center justify-center">
-                    <Mic className="w-6 h-6 text-zinc-500" />
+                    <AudioLines className="w-6 h-6 text-zinc-500" />
                   </div>
                   <div>
                     <p className="text-sm font-medium text-zinc-300">

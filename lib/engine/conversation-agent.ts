@@ -30,12 +30,12 @@ function sanitizeForVoice(text: string): string {
 }
 
 /**
- * Calls an external LLM (Groq, Gemini, OpenAI, or Ollama) if configured, or checks local Ollama.
+ * Calls Qwen AI Brain (DashScope / OpenAI-compatible endpoint) if configured.
  */
 async function tryLlmGeneration(userInput: string, stateVersion: number): Promise<string | null> {
-  const { key: llmKey, provider } = getLlmApiKey();
+  const { key: llmKey, provider, model, baseUrl } = getLlmApiKey();
 
-  const systemPrompt = `You are Astra, a brilliantly intelligent, real-time voice AI assistant powered by Rime Coda speech synthesis and VoiceTrace.
+  const systemPrompt = `You are Astra, a brilliantly intelligent, real-time voice AI assistant powered by Rime Coda speech synthesis, LiveKit audio streaming, and VoiceTrace.
 You can answer ANY question, fix code, debug software, write logic, analyze problems, give advice, and discuss any topic.
 Rules for voice synthesis:
 1. Speak naturally, warmly, intelligently, and directly (2 to 4 spoken sentences).
@@ -43,18 +43,21 @@ Rules for voice synthesis:
 3. If explaining or writing code, explain the solution and code clearly in spoken words so it sounds natural when heard out loud.
 Active state version is v${stateVersion}.`;
 
-  // 1. Groq (Ultra-low latency for voice ~120-180ms)
-  if (provider === "groq" && llmKey) {
-    for (const model of ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]) {
+  // Qwen AI Brain (Qwen 2.5 / DashScope / OpenAI-compatible endpoint)
+  if (provider === "qwen" && llmKey) {
+    const candidateModels = [model || "qwen-plus", "qwen-turbo", "qwen2.5-72b-instruct", "qwen-max"];
+    const endpoint = `${baseUrl.replace(/\/+$/, "")}/chat/completions`;
+
+    for (const m of candidateModels) {
       try {
-        const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+        const res = await fetch(endpoint, {
           method: "POST",
           headers: {
             Authorization: `Bearer ${llmKey}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            model,
+            model: m,
             messages: [
               { role: "system", content: systemPrompt },
               { role: "user", content: userInput },
@@ -63,91 +66,19 @@ Active state version is v${stateVersion}.`;
             temperature: 0.7,
           }),
         });
+
         if (res.ok) {
           const data = await res.json();
           const text = data.choices?.[0]?.message?.content?.trim();
           if (text) return sanitizeForVoice(text);
+        } else {
+          console.warn(`Qwen (${m}) response not ok:`, res.status);
         }
       } catch (e) {
-        console.warn(`Groq (${model}) call failed:`, e);
+        console.warn(`Qwen (${m}) call failed:`, e);
       }
     }
   }
-
-  // 2. Google Gemini (Gemini Flash Latest / Gemini 3.6 Flash)
-  if (provider === "gemini" && llmKey) {
-    for (const model of ["gemini-flash-latest", "gemini-3.6-flash", "gemini-2.5-flash"]) {
-      try {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${llmKey}`;
-        const res = await fetch(url, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            systemInstruction: { parts: [{ text: systemPrompt }] },
-            contents: [{ parts: [{ text: userInput }] }],
-            generationConfig: { maxOutputTokens: 500, temperature: 0.7 },
-          }),
-        });
-        if (res.ok) {
-          const data = await res.json();
-          const text = data.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-          if (text) return sanitizeForVoice(text);
-        }
-      } catch (e) {
-        console.warn(`Gemini (${model}) call failed:`, e);
-      }
-    }
-  }
-
-  // 3. OpenAI (GPT-4o mini)
-  if (provider === "openai" && llmKey) {
-    try {
-      const res = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${llmKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model: "gpt-4o-mini",
-          messages: [
-            { role: "system", content: systemPrompt },
-            { role: "user", content: userInput },
-          ],
-          max_tokens: 180,
-          temperature: 0.7,
-        }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        const text = data.choices?.[0]?.message?.content?.trim();
-        if (text) return sanitizeForVoice(text);
-      }
-    } catch (e) {
-      console.warn("OpenAI LLM call failed:", e);
-    }
-  }
-
-  // 4. Ollama (Local AI - 100% private and zero keys required)
-  const ollamaHost = provider === "ollama" && llmKey ? llmKey : "http://127.0.0.1:11434";
-  try {
-    const ollamaRes = await fetch(`${ollamaHost}/api/generate`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: "llama3.2",
-        prompt: `${systemPrompt}\n\nUser: ${userInput}\nAstra:`,
-        stream: false,
-        options: { num_predict: 150 },
-      }),
-      signal: AbortSignal.timeout(4000), // Fast 4s timeout for local check
-    });
-    if (ollamaRes.ok) {
-      const data = await ollamaRes.json();
-      const text = data.response?.trim();
-      if (text) return sanitizeForVoice(text);
-    }
-  } catch {}
 
   return null;
 }
@@ -406,7 +337,7 @@ export async function processVoiceCommand(
     return {
       intent: "CONVERSATIONAL",
       responseText:
-        "Yes, absolutely! I can analyze bugs, debug code, and explain software algorithms across Python, JavaScript, and TypeScript. For full open-ended code generation, you can also link your free Groq or Gemini key in Settings. What code or error are you looking to fix?",
+        "Yes, absolutely! I can analyze bugs, debug code, and explain software algorithms across Python, JavaScript, and TypeScript. For full open-ended code generation, you can also link your Qwen key in Settings. What code or error are you looking to fix?",
     };
   }
 

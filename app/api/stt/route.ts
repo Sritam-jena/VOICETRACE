@@ -13,124 +13,64 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { key, provider } = getLlmApiKey();
+    const { key, provider, baseUrl } = getLlmApiKey();
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
 
-    // 1. Try Groq Whisper (Blazing fast ~120ms transcription)
-    const groqKey = (provider === "groq" ? key : process.env.GROQ_API_KEY)?.trim();
-    if (groqKey && groqKey.length > 5) {
-      try {
-        const groqFormData = new FormData();
-        const audioBlob = new Blob([buffer], { type: file.type || "audio/webm" });
-        groqFormData.append("file", audioBlob, "speech.webm");
-        groqFormData.append("model", "whisper-large-v3-turbo");
-        groqFormData.append("response_format", "json");
-
-        const groqRes = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${groqKey}`,
-          },
-          body: groqFormData,
-        });
-
-        if (groqRes.ok) {
-          const data = await groqRes.json();
-          const transcript = (data.text || "").trim();
-          return NextResponse.json({
-            success: true,
-            transcript,
-            provider: "Groq Whisper (whisper-large-v3-turbo)",
-          });
-        }
-      } catch (groqErr) {
-        console.warn("Groq Whisper attempt failed, attempting fallback:", groqErr);
-      }
-    }
-
-    // 2. Try Google Gemini Multimodal Audio (Native audio understanding)
-    const geminiKey = (provider === "gemini" ? key : process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY)?.trim();
-    if (geminiKey && geminiKey.length > 5) {
+    // Qwen Audio Transcription (qwen-audio-turbo / Qwen2-Audio)
+    const qwenKey = (provider === "qwen" ? key : process.env.QWEN_API_KEY || process.env.DASHSCOPE_API_KEY)?.trim();
+    if (qwenKey && qwenKey.length > 5) {
       const base64Audio = buffer.toString("base64");
       const mimeType = file.type?.includes("wav") ? "audio/wav" : "audio/webm";
 
-      const candidateModels = ["gemini-3.6-flash", "gemini-flash-latest", "gemini-2.5-flash", "gemini-1.5-flash"];
+      const candidateModels = ["qwen-audio-turbo", "qwen2-audio-instruct"];
       for (const model of candidateModels) {
         try {
-          const geminiRes = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiKey}`,
-            {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                contents: [
-                  {
-                    parts: [
-                      {
-                        inlineData: {
-                          mimeType,
-                          data: base64Audio,
-                        },
+          const endpoint = `${(baseUrl || "https://dashscope-intl.aliyuncs.com/compatible-mode/v1").replace(/\/+$/, "")}/chat/completions`;
+          const qwenRes = await fetch(endpoint, {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${qwenKey}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              model,
+              messages: [
+                {
+                  role: "user",
+                  content: [
+                    {
+                      type: "audio_url",
+                      audio_url: {
+                        url: `data:${mimeType};base64,${base64Audio}`,
                       },
-                      {
-                        text: "Transcribe the spoken audio verbatim into plain text. Output ONLY the exact transcribed words spoken, with no markdown, quotes, preamble, or metadata. If there is only silence or unintelligible noise, output nothing.",
-                      },
-                    ],
-                  },
-                ],
-                generationConfig: {
-                  temperature: 0.1,
-                  maxOutputTokens: 250,
+                    },
+                    {
+                      type: "text",
+                      text: "Transcribe the spoken audio verbatim into plain text. Output ONLY the exact transcribed words spoken, with no markdown, quotes, preamble, or metadata.",
+                    },
+                  ],
                 },
-              }),
-            }
-          );
-
-          if (geminiRes.ok) {
-            const geminiData = await geminiRes.json();
-            const transcript =
-              geminiData?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || "";
-            return NextResponse.json({
-              success: true,
-              transcript,
-              provider: `Gemini (${model} Audio AI)`,
-            });
-          }
-        } catch (geminiErr) {
-          console.warn(`Gemini (${model}) audio transcription attempt failed:`, geminiErr);
-        }
-      }
-    }
-
-    // 3. Try OpenAI Whisper (whisper-1)
-    const openaiKey = (provider === "openai" ? key : process.env.OPENAI_API_KEY)?.trim();
-    if (openaiKey && openaiKey.length > 5) {
-      try {
-        const openaiFormData = new FormData();
-        const audioBlob = new Blob([buffer], { type: file.type || "audio/webm" });
-        openaiFormData.append("file", audioBlob, "speech.webm");
-        openaiFormData.append("model", "whisper-1");
-
-        const openaiRes = await fetch("https://api.openai.com/v1/audio/transcriptions", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${openaiKey}`,
-          },
-          body: openaiFormData,
-        });
-
-        if (openaiRes.ok) {
-          const data = await openaiRes.json();
-          const transcript = (data.text || "").trim();
-          return NextResponse.json({
-            success: true,
-            transcript,
-            provider: "OpenAI Whisper",
+              ],
+              temperature: 0.1,
+              max_tokens: 250,
+            }),
           });
+
+          if (qwenRes.ok) {
+            const data = await qwenRes.json();
+            const transcript = data?.choices?.[0]?.message?.content?.trim() || "";
+            if (transcript) {
+              return NextResponse.json({
+                success: true,
+                transcript,
+                provider: `Qwen Audio (${model})`,
+              });
+            }
+          }
+        } catch (qwenErr) {
+          console.warn(`Qwen (${model}) audio transcription attempt failed:`, qwenErr);
         }
-      } catch (openaiErr) {
-        console.warn("OpenAI Whisper attempt failed:", openaiErr);
       }
     }
 
@@ -138,7 +78,7 @@ export async function POST(req: NextRequest) {
       {
         success: false,
         error:
-          "No Whisper or Gemini API key configured for speech transcription. Please activate a free Groq or Gemini key in Settings.",
+          "No Qwen API key configured for speech transcription. Please activate your Qwen key in Settings.",
       },
       { status: 400 }
     );

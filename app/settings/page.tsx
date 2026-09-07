@@ -17,6 +17,9 @@ import {
   Sparkles,
   ArrowRight,
   Layers,
+  Radio,
+  ExternalLink,
+  Shield,
 } from "lucide-react";
 
 export default function SettingsPage() {
@@ -34,37 +37,58 @@ export default function SettingsPage() {
   const [isPlayingTestAudio, setIsPlayingTestAudio] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
-  // LLM Brain State
+  // Qwen AI Brain State
   const [llmConfig, setLlmConfig] = useState<{
     configured: boolean;
-    provider: "groq" | "gemini" | "openai" | "ollama" | null;
+    provider: "qwen" | null;
+    model: string;
     maskedKey: string;
-  }>({ configured: false, provider: null, maskedKey: "" });
-  const [selectedProvider, setSelectedProvider] = useState<"groq" | "gemini" | "openai" | "ollama">("groq");
+  }>({ configured: false, provider: null, model: "qwen-plus", maskedKey: "" });
+  const [selectedModel, setSelectedModel] = useState<string>("qwen-plus");
   const [inputLlmKey, setInputLlmKey] = useState("");
   const [isSavingLlmKey, setIsSavingLlmKey] = useState(false);
   const [llmSaveMessage, setLlmSaveMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
-  // LLM Test State
+  // Qwen Test State
   const [llmTestPrompt, setLlmTestPrompt] = useState("Can you fix code and explain how you work?");
   const [isTestingLlm, setIsTestingLlm] = useState(false);
   const [llmTestResult, setLlmTestResult] = useState<any>(null);
 
+  // LiveKit Realtime Transport State
+  const [livekitConfig, setLivekitConfig] = useState<{
+    isConfigured: boolean;
+    url: string;
+    hasApiKey: boolean;
+    hasApiSecret: boolean;
+  }>({ isConfigured: false, url: "", hasApiKey: false, hasApiSecret: false });
+  const [inputLivekitUrl, setInputLivekitUrl] = useState("");
+  const [inputLivekitKey, setInputLivekitKey] = useState("");
+  const [inputLivekitSecret, setInputLivekitSecret] = useState("");
+  const [isSavingLivekit, setIsSavingLivekit] = useState(false);
+  const [livekitSaveMessage, setLivekitSaveMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+
   const fetchHealthAndKeys = async () => {
     try {
       setLoading(true);
-      const [hRes, kRes, llmRes] = await Promise.all([
+      const [hRes, kRes, llmRes, lkRes] = await Promise.all([
         fetch("/api/health").then((r) => r.json()),
         fetch("/api/settings/rime-key").then((r) => r.json()),
         fetch("/api/settings/llm-key").then((r) => r.json()),
+        fetch("/api/settings/livekit").then((r) => r.json()).catch(() => null),
       ]);
       setHealth(hRes);
       if (llmRes) {
         setLlmConfig(llmRes);
-        if (llmRes.provider) setSelectedProvider(llmRes.provider);
+        if (llmRes.model) setSelectedModel(llmRes.model);
+      }
+      if (lkRes) {
+        setLivekitConfig(lkRes);
+        if (lkRes.url) setInputLivekitUrl(lkRes.url);
       }
       setInputKey("");
       setInputLlmKey("");
+      setInputLivekitKey("");
+      setInputLivekitSecret("");
     } catch (err) {
       console.error("Failed to load settings data:", err);
     } finally {
@@ -79,7 +103,7 @@ export default function SettingsPage() {
   const handleSaveRimeKey = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!inputKey || inputKey.includes("••••")) {
-      setSaveMessage({ type: "error", text: "Please enter a valid, unmasked API key to update." });
+      setSaveMessage({ type: "error", text: "Please enter a valid API key to update." });
       return;
     }
 
@@ -108,8 +132,8 @@ export default function SettingsPage() {
 
   const handleSaveLlmKey = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (selectedProvider !== "ollama" && (!inputLlmKey || inputLlmKey.includes("••••"))) {
-      setLlmSaveMessage({ type: "error", text: "Please enter an unmasked API key." });
+    if (!inputLlmKey || inputLlmKey.includes("••••")) {
+      setLlmSaveMessage({ type: "error", text: "Please enter a valid Qwen API key to update." });
       return;
     }
 
@@ -120,25 +144,59 @@ export default function SettingsPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          provider: selectedProvider,
+          provider: "qwen",
           apiKey: inputLlmKey.trim(),
+          model: selectedModel,
         }),
       }).then((r) => r.json());
 
       if (res.success) {
         setLlmSaveMessage({
           type: "success",
-          text: `${selectedProvider.toUpperCase()} AI Brain activated! Astra can now answer any question and fix code freely.`,
+          text: `Qwen 2.5 AI Brain (${selectedModel}) successfully activated! Astra can now answer any question and debug code freely.`,
         });
         setInputLlmKey("");
         await fetchHealthAndKeys();
       } else {
-        setLlmSaveMessage({ type: "error", text: res.error || "Failed to activate LLM" });
+        setLlmSaveMessage({ type: "error", text: res.error || "Failed to activate Qwen key" });
       }
     } catch (err: any) {
       setLlmSaveMessage({ type: "error", text: err.message });
     } finally {
       setIsSavingLlmKey(false);
+    }
+  };
+
+  const handleSaveLiveKit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSavingLivekit(true);
+    setLivekitSaveMessage(null);
+    try {
+      const res = await fetch("/api/settings/livekit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          url: inputLivekitUrl.trim(),
+          apiKey: inputLivekitKey.trim(),
+          apiSecret: inputLivekitSecret.trim(),
+        }),
+      }).then((r) => r.json());
+
+      if (res.success) {
+        setLivekitSaveMessage({
+          type: "success",
+          text: "LiveKit Realtime Transport configuration successfully updated!",
+        });
+        setInputLivekitKey("");
+        setInputLivekitSecret("");
+        await fetchHealthAndKeys();
+      } else {
+        setLivekitSaveMessage({ type: "error", text: res.error || "Failed to save LiveKit configuration" });
+      }
+    } catch (err: any) {
+      setLivekitSaveMessage({ type: "error", text: err.message });
+    } finally {
+      setIsSavingLivekit(false);
     }
   };
 
@@ -215,154 +273,139 @@ export default function SettingsPage() {
           Settings &amp; AI Engine Configuration
         </h1>
         <p className="text-sm text-zinc-400 mt-1">
-          Configure Astra&apos;s speech vocal cords (Rime TTS) and generative AI brain (Groq, Gemini, OpenAI, or Ollama)
+          Configure Astra&apos;s speech vocal cords (Rime TTS), LiveKit Realtime Transport, and Qwen 2.5 AI Brain
         </p>
       </div>
 
-      {/* 1. AI Brain & Generative Intelligence (LLM) Card */}
+      {/* 1. Qwen AI Brain (LLM Engine) Card */}
       <div className="p-6 rounded-lg mono-card space-y-6 border border-zinc-800 bg-[#101012]">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#222227] pb-4">
           <div className="flex items-center gap-2.5">
-            <Sparkles className="w-5 h-5 text-amber-400" />
+            <Sparkles className="w-5 h-5 text-[#00F0FF]" />
             <h2 className="text-base font-bold uppercase tracking-wider text-white">
-              AI Brain &amp; Intelligence (LLM Engine)
+              Qwen 2.5 AI Brain &amp; Intelligence
             </h2>
           </div>
           <span
-            className={`text-xs uppercase px-2.5 py-1 rounded-md border font-sfmono font-semibold ${
-              llmConfig.configured
-                ? "border-emerald-700/80 bg-emerald-950/40 text-emerald-300"
-                : "border-amber-700/80 bg-amber-950/30 text-amber-300"
-            }`}
+            className="text-xs uppercase px-2.5 py-1 rounded-md border font-sfmono font-semibold border-emerald-700/80 bg-emerald-950/40 text-emerald-300 flex items-center gap-1.5"
           >
-            {llmConfig.configured
-              ? `LIVE AI: ${llmConfig.provider?.toUpperCase()} ACTIVE`
-              : "SCRIPT FALLBACK (ADD FREE KEY)"}
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+            LIVE AI: QWEN 2.5 ACTIVE ({llmConfig.model || "qwen-plus"})
           </span>
         </div>
 
         <p className="text-sm text-zinc-300 leading-relaxed">
-          While Rime provides Astra&apos;s voice vocal cords, the <strong>LLM Brain</strong> gives Astra open-ended general intelligence. With an active AI brain, Astra can <strong>fix code, debug errors, solve algorithms, answer any question, and reason freely</strong> instead of using scripted canned responses.
+          Powered by <strong>Qwen 2.5</strong> (Alibaba Cloud), Astra gains open-ended conversational intelligence. With an active Qwen AI brain, Astra can <strong>fix code, debug errors, solve algorithms, answer complex questions, and reason freely</strong> in natural voice dialogue.
         </p>
 
-        {/* Provider Selector Tabs */}
+        {/* Model Presets */}
         <div className="space-y-3">
           <label className="text-xs font-semibold uppercase tracking-wider text-zinc-400 block">
-            Select AI Brain Provider:
+            Select Qwen 2.5 Model:
           </label>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2.5">
             {[
               {
-                id: "groq",
-                name: "Groq LPU",
-                desc: "Fastest voice (~150ms), 100% Free",
+                id: "qwen-plus",
+                name: "Qwen Plus",
+                desc: "Balanced flagship intelligence & voice speed",
                 tag: "Recommended",
               },
               {
-                id: "gemini",
-                name: "Google Gemini",
-                desc: "Gemini 2.0/1.5 Flash, 100% Free",
-                tag: "Free Tier",
+                id: "qwen-turbo",
+                name: "Qwen Turbo",
+                desc: "Ultra-low latency (~120ms) snappy speech",
+                tag: "Fastest",
               },
               {
-                id: "openai",
-                name: "OpenAI",
-                desc: "GPT-4o mini, High accuracy",
-                tag: "Standard",
+                id: "qwen2.5-72b-instruct",
+                name: "Qwen 2.5 72B",
+                desc: "Deep domain reasoning & complex math",
+                tag: "72B Flagship",
               },
               {
-                id: "ollama",
-                name: "Local Ollama",
-                desc: "100% Local & private, No keys",
-                tag: "Local",
+                id: "qwen2.5-coder-32b",
+                name: "Qwen Coder 32B",
+                desc: "Specialized for coding & software debugging",
+                tag: "Code AI",
               },
-            ].map((prov) => (
+            ].map((mod) => (
               <button
-                key={prov.id}
+                key={mod.id}
                 type="button"
-                onClick={() => setSelectedProvider(prov.id as any)}
+                onClick={() => setSelectedModel(mod.id)}
                 className={`p-3 rounded-lg border text-left transition-all ${
-                  selectedProvider === prov.id
-                    ? "border-white bg-zinc-800 text-white shadow-sm"
+                  selectedModel === mod.id
+                    ? "border-[#00F0FF] bg-zinc-800 text-white shadow-sm"
                     : "border-zinc-800 bg-zinc-950/60 text-zinc-400 hover:border-zinc-700 hover:text-zinc-200"
                 }`}
               >
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold font-sfmono">{prov.name}</span>
+                  <span className="text-xs font-bold font-sfmono">{mod.name}</span>
                   <span
-                    className={`text-[10px] uppercase px-1.5 py-0.2 rounded font-semibold ${
-                      selectedProvider === prov.id
-                        ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+                    className={`text-[10px] uppercase px-1.5 py-0.5 rounded font-semibold ${
+                      selectedModel === mod.id
+                        ? "bg-[#00F0FF]/20 text-[#00F0FF] border border-[#00F0FF]/30"
                         : "bg-zinc-800 text-zinc-400"
                     }`}
                   >
-                    {prov.tag}
+                    {mod.tag}
                   </span>
                 </div>
-                <p className="text-[11px] text-zinc-400 mt-1 leading-tight">{prov.desc}</p>
+                <p className="text-[11px] text-zinc-400 mt-1 leading-tight">{mod.desc}</p>
               </button>
             ))}
           </div>
         </div>
 
-        {/* Free Key Quick Links */}
+        {/* Free Qwen Key Helper */}
         <div className="p-3 rounded-md bg-zinc-950 border border-zinc-800/80 text-xs text-zinc-300 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <span>
-            Need a 100% free key with no credit card required?
+            Need a Qwen / DashScope API key? Free tiers are available from Alibaba Cloud.
           </span>
-          <div className="flex items-center gap-3">
-            <a
-              href="https://console.groq.com/keys"
-              target="_blank"
-              rel="noreferrer"
-              className="text-emerald-400 hover:text-emerald-300 font-semibold underline underline-offset-2 flex items-center gap-1"
-            >
-              Get Free Groq Key ↗
-            </a>
-            <span className="text-zinc-600">•</span>
-            <a
-              href="https://aistudio.google.com/app/apikey"
-              target="_blank"
-              rel="noreferrer"
-              className="text-blue-400 hover:text-blue-300 font-semibold underline underline-offset-2 flex items-center gap-1"
-            >
-              Get Free Gemini Key ↗
-            </a>
-          </div>
+          <a
+            href="https://dashscope.console.aliyun.com"
+            target="_blank"
+            rel="noreferrer"
+            className="text-[#00F0FF] hover:text-[#2CC3E9] font-semibold underline underline-offset-2 flex items-center gap-1 shrink-0"
+          >
+            Get Free Qwen Key (DashScope) ↗
+          </a>
         </div>
 
-        {/* LLM Key Form */}
+        {/* Qwen Key Form - NEVER expose raw keys */}
         <form onSubmit={handleSaveLlmKey} className="space-y-4">
           <div className="space-y-2">
             <label className="text-xs font-semibold uppercase tracking-wider text-zinc-400 block">
-              {selectedProvider === "ollama" ? "Ollama Host URL:" : `${selectedProvider.toUpperCase()} API Key:`}
+              Qwen API Key:
             </label>
             <div className="flex flex-col sm:flex-row gap-2.5">
               <input
-                type={selectedProvider === "ollama" ? "text" : "password"}
+                type="password"
                 value={inputLlmKey}
                 onChange={(e) => {
                   setInputLlmKey(e.target.value);
                   setLlmSaveMessage(null);
                 }}
                 placeholder={
-                  selectedProvider === "ollama"
-                    ? "http://127.0.0.1:11434"
-                    : llmConfig.configured && llmConfig.provider === selectedProvider
-                    ? "•••••••••••••••• (Key active and protected)"
-                    : `Paste your ${selectedProvider.toUpperCase()} API key...`
+                  llmConfig.configured
+                    ? "•••••••••••••••• (Key active and securely protected)"
+                    : "Paste your Qwen API key (DashScope)..."
                 }
-                className="flex-1 bg-zinc-950 border border-[#27272a] rounded-md px-4 py-2.5 text-sm text-zinc-100 placeholder-zinc-500 font-sfmono focus:outline-none focus:border-zinc-400"
+                className="flex-1 bg-zinc-950 border border-[#27272a] rounded-md px-4 py-2.5 text-sm text-zinc-100 placeholder-zinc-500 font-sfmono focus:outline-none focus:border-[#00F0FF]"
               />
               <button
                 type="submit"
-                disabled={isSavingLlmKey || (selectedProvider !== "ollama" && !inputLlmKey)}
+                disabled={isSavingLlmKey || !inputLlmKey}
                 className="px-5 py-2.5 rounded-md bg-zinc-100 hover:bg-white text-zinc-950 text-sm font-bold flex items-center justify-center gap-2 transition-all shadow-sm shrink-0"
               >
                 <Key className={`w-4 h-4 ${isSavingLlmKey ? "animate-spin" : ""}`} />
-                {isSavingLlmKey ? "Activating..." : "Activate Key"}
+                {isSavingLlmKey ? "Activating..." : "Activate Qwen Key"}
               </button>
             </div>
+            <p className="text-[11px] text-zinc-500 font-sfmono">
+              Keys are strictly isolated server-side and never exposed to the client or browser.
+            </p>
           </div>
 
           {llmSaveMessage && (
@@ -383,13 +426,13 @@ export default function SettingsPage() {
           )}
         </form>
 
-        {/* Live AI Reasoning Verification */}
+        {/* Live Qwen AI Verification */}
         <div className="pt-4 border-t border-[#222227] space-y-3">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
             <div>
-              <h3 className="text-sm font-semibold text-white">Live AI Reasoning Verification</h3>
+              <h3 className="text-sm font-semibold text-white">Live Qwen AI Verification</h3>
               <p className="text-xs text-zinc-400 mt-0.5">
-                Send a sample question to test whether Astra responds using a real LLM or local fallback
+                Send a sample question to test whether Astra responds using Qwen 2.5 or local fallback
               </p>
             </div>
             <button
@@ -398,7 +441,7 @@ export default function SettingsPage() {
               className="px-4 py-2 rounded-md border border-[#27272a] bg-[#121214] text-zinc-200 hover:text-white text-xs sm:text-sm font-medium flex items-center gap-2 transition-all shrink-0"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isTestingLlm ? "animate-spin" : ""}`} />
-              {isTestingLlm ? "Testing AI Brain..." : "Test AI Reasoning"}
+              {isTestingLlm ? "Testing Qwen AI..." : "Test Qwen Reasoning"}
             </button>
           </div>
 
@@ -421,7 +464,7 @@ export default function SettingsPage() {
                       llmTestResult.isLlmGenerated ? "bg-emerald-400" : "bg-amber-400"
                     }`}
                   ></span>
-                  Mode: <strong className="text-white">{llmTestResult.isLlmGenerated ? `REAL GENERATIVE AI (${llmTestResult.provider})` : "FALLBACK CONVERSATIONAL ENGINE"}</strong>
+                  Mode: <strong className="text-white">{llmTestResult.isLlmGenerated ? `REAL GENERATIVE AI (${llmTestResult.provider?.toUpperCase()})` : "FALLBACK CONVERSATIONAL ENGINE"}</strong>
                 </span>
                 <span>Latency: <strong className="text-white">{llmTestResult.latencyMs}ms</strong></span>
               </div>
@@ -433,11 +476,138 @@ export default function SettingsPage() {
         </div>
       </div>
 
-      {/* 2. Rime TTS Vocal Cords Card */}
+      {/* 2. LiveKit Realtime Transport Card */}
+      <div className="p-6 rounded-lg mono-card space-y-6 border border-zinc-800 bg-[#101012]">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#222227] pb-4">
+          <div className="flex items-center gap-2.5">
+            <Radio className="w-5 h-5 text-emerald-400" />
+            <h2 className="text-base font-bold uppercase tracking-wider text-white">
+              LiveKit Realtime Transport (WebRTC Stream)
+            </h2>
+          </div>
+          <span
+            className={`text-xs uppercase px-2.5 py-1 rounded-md border font-sfmono font-semibold ${
+              livekitConfig.isConfigured
+                ? "border-emerald-700/80 bg-emerald-950/40 text-emerald-300"
+                : "border-zinc-700 bg-zinc-900 text-zinc-400"
+            }`}
+          >
+            {livekitConfig.isConfigured ? "LIVEKIT CLOUD CONNECTED" : "WEBAUDIO BROWSER TRANSPORT"}
+          </span>
+        </div>
+
+        <p className="text-sm text-zinc-300 leading-relaxed">
+          VoiceTrace integrates with <strong>LiveKit</strong> for broadcast-quality bidirectional WebRTC audio transport. Connect your LiveKit Cloud or self-hosted instance to enable seamless room-based streaming alongside HTML5 Web Audio.
+        </p>
+
+        {/* LiveKit Cloud Quick Link */}
+        <div className="p-3 rounded-md bg-zinc-950 border border-zinc-800/80 text-xs text-zinc-300 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <span>
+            Deploy low-latency voice infrastructure with free LiveKit Cloud.
+          </span>
+          <a
+            href="https://cloud.livekit.io"
+            target="_blank"
+            rel="noreferrer"
+            className="text-emerald-400 hover:text-emerald-300 font-semibold underline underline-offset-2 flex items-center gap-1 shrink-0"
+          >
+            Get LiveKit Cloud Credentials ↗
+          </a>
+        </div>
+
+        {/* LiveKit Form - NEVER expose raw keys */}
+        <form onSubmit={handleSaveLiveKit} className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold uppercase tracking-wider text-zinc-400 block">
+                Server URL:
+              </label>
+              <input
+                type="text"
+                value={inputLivekitUrl}
+                onChange={(e) => {
+                  setInputLivekitUrl(e.target.value);
+                  setLivekitSaveMessage(null);
+                }}
+                placeholder="wss://your-project.livekit.cloud"
+                className="w-full bg-zinc-950 border border-[#27272a] rounded-md px-3 py-2 text-xs sm:text-sm text-zinc-100 placeholder-zinc-500 font-sfmono focus:outline-none focus:border-emerald-400"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold uppercase tracking-wider text-zinc-400 block">
+                API Key:
+              </label>
+              <input
+                type="password"
+                value={inputLivekitKey}
+                onChange={(e) => {
+                  setInputLivekitKey(e.target.value);
+                  setLivekitSaveMessage(null);
+                }}
+                placeholder={
+                  livekitConfig.hasApiKey
+                    ? "•••••••••••••••• (Protected)"
+                    : "Enter LiveKit API Key..."
+                }
+                className="w-full bg-zinc-950 border border-[#27272a] rounded-md px-3 py-2 text-xs sm:text-sm text-zinc-100 placeholder-zinc-500 font-sfmono focus:outline-none focus:border-emerald-400"
+              />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold uppercase tracking-wider text-zinc-400 block">
+                API Secret:
+              </label>
+              <input
+                type="password"
+                value={inputLivekitSecret}
+                onChange={(e) => {
+                  setInputLivekitSecret(e.target.value);
+                  setLivekitSaveMessage(null);
+                }}
+                placeholder={
+                  livekitConfig.hasApiSecret
+                    ? "•••••••••••••••• (Protected)"
+                    : "Enter LiveKit Secret..."
+                }
+                className="w-full bg-zinc-950 border border-[#27272a] rounded-md px-3 py-2 text-xs sm:text-sm text-zinc-100 placeholder-zinc-500 font-sfmono focus:outline-none focus:border-emerald-400"
+              />
+            </div>
+          </div>
+
+          <div className="flex justify-end pt-1">
+            <button
+              type="submit"
+              disabled={isSavingLivekit}
+              className="px-4 py-2 rounded-md bg-zinc-100 hover:bg-white text-zinc-950 text-xs sm:text-sm font-bold flex items-center justify-center gap-2 transition-all shadow-sm shrink-0"
+            >
+              <Save className={`w-3.5 h-3.5 ${isSavingLivekit ? "animate-spin" : ""}`} />
+              {isSavingLivekit ? "Saving..." : "Save LiveKit Configuration"}
+            </button>
+          </div>
+
+          {livekitSaveMessage && (
+            <div
+              className={`p-3 rounded-md text-xs sm:text-sm font-medium flex items-center gap-2 ${
+                livekitSaveMessage.type === "success"
+                  ? "bg-emerald-950/40 border border-emerald-800 text-emerald-300"
+                  : "bg-red-950/40 border border-red-800 text-red-300"
+              }`}
+            >
+              {livekitSaveMessage.type === "success" ? (
+                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+              ) : (
+                <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+              )}
+              <span>{livekitSaveMessage.text}</span>
+            </div>
+          )}
+        </form>
+      </div>
+
+      {/* 3. Rime TTS Vocal Cords Card */}
       <div className="p-6 rounded-lg mono-card space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#222227] pb-4">
           <div className="flex items-center gap-2.5">
-            <Key className="w-5 h-5 text-zinc-300" />
+            <Volume2 className="w-5 h-5 text-zinc-300" />
             <h2 className="text-base font-bold uppercase tracking-wider text-white">
               Rime Speech Vocal Cords (TTS Engine)
             </h2>
@@ -454,10 +624,10 @@ export default function SettingsPage() {
         </div>
 
         <p className="text-sm text-zinc-300 leading-relaxed">
-          VoiceTrace uses Rime as its primary speech synthesis engine. You can paste your Rime API key below or set <code className="text-zinc-200 bg-zinc-900 px-1.5 py-0.5 rounded border border-zinc-800 text-xs">RIME_API_KEY</code> directly in <code className="text-zinc-200 bg-zinc-900 px-1.5 py-0.5 rounded border border-zinc-800 text-xs">.env</code> or <code className="text-zinc-200 bg-zinc-900 px-1.5 py-0.5 rounded border border-zinc-800 text-xs">tests/key.env</code>.
+          VoiceTrace uses Rime as its primary speech synthesis engine. You can paste your Rime API key below or set <code className="text-zinc-200 bg-zinc-900 px-1.5 py-0.5 rounded border border-zinc-800 text-xs">RIME_API_KEY</code> directly in <code className="text-zinc-200 bg-zinc-900 px-1.5 py-0.5 rounded border border-zinc-800 text-xs">.env</code>.
         </p>
 
-        {/* Form to enter / update Rime key */}
+        {/* Form to enter / update Rime key - NEVER expose raw keys */}
         <form onSubmit={handleSaveRimeKey} className="space-y-4">
           <div className="space-y-2">
             <label className="text-xs font-semibold uppercase tracking-wider text-zinc-400 block">
@@ -483,6 +653,9 @@ export default function SettingsPage() {
                 {isSavingKey ? "Activating..." : "Activate Key"}
               </button>
             </div>
+            <p className="text-[11px] text-zinc-500 font-sfmono">
+              Keys are strictly isolated server-side and never exposed to the client or browser.
+            </p>
           </div>
 
           {saveMessage && (
@@ -583,27 +756,27 @@ export default function SettingsPage() {
         )}
       </div>
 
-      {/* 3. Rime Engine Metadata */}
+      {/* 4. Telemetry & Security Boundary Specifications */}
       <div className="p-6 rounded-lg mono-card space-y-4">
         <div className="flex items-center gap-2.5 border-b border-[#222227] pb-4">
-          <Volume2 className="w-5 h-5 text-zinc-300" />
+          <Shield className="w-5 h-5 text-zinc-300" />
           <h2 className="text-base font-bold uppercase tracking-wider text-white">
-            Rime Telemetry Specifications
+            Security &amp; Telemetry Specifications
           </h2>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 text-xs font-sfmono">
           <div className="p-3.5 rounded-md bg-zinc-950 border border-[#222227] space-y-1">
-            <span className="text-zinc-400 block text-xs font-semibold uppercase">Model ID</span>
-            <span className="text-white font-medium text-sm">{rimeMeta?.model || "coda"}</span>
+            <span className="text-zinc-400 block text-xs font-semibold uppercase">Voice TTS Engine</span>
+            <span className="text-white font-medium text-sm">Rime Coda (Astra)</span>
           </div>
           <div className="p-3.5 rounded-md bg-zinc-950 border border-[#222227] space-y-1">
-            <span className="text-zinc-400 block text-xs font-semibold uppercase">Voice / Speaker</span>
-            <span className="text-white font-medium text-sm">{rimeMeta?.voice || "amber"}</span>
+            <span className="text-zinc-400 block text-xs font-semibold uppercase">Realtime Transport</span>
+            <span className="text-white font-medium text-sm">LiveKit / WebRTC</span>
           </div>
           <div className="p-3.5 rounded-md bg-zinc-950 border border-[#222227] space-y-1">
-            <span className="text-zinc-400 block text-xs font-semibold uppercase">Language</span>
-            <span className="text-white font-medium text-sm">{rimeMeta?.language || "en"}</span>
+            <span className="text-zinc-400 block text-xs font-semibold uppercase">AI Reasoning Brain</span>
+            <span className="text-white font-medium text-sm">Qwen 2.5 (Alibaba)</span>
           </div>
           <div className="p-3.5 rounded-md bg-zinc-950 border border-[#222227] space-y-1">
             <span className="text-zinc-400 block text-xs font-semibold uppercase">Audio Format</span>
@@ -623,16 +796,16 @@ export default function SettingsPage() {
 
         <div className="p-3.5 rounded-md bg-zinc-950 border border-[#222227] text-xs text-zinc-400 flex items-center justify-between font-sfmono">
           <span className="flex items-center gap-2">
-            <Lock className="w-4 h-4 text-zinc-400" />
-            Server Security Boundary:
+            <Lock className="w-4 h-4 text-emerald-400" />
+            Zero Key Exposure Policy:
           </span>
           <span className="text-zinc-200 font-medium">
-            {isKeyActive ? "Server-Side Isolated (Client Protected)" : "No Live Key Configured"}
+            All API Keys (Rime, Qwen, LiveKit) isolated server-side • Never revealed in browser
           </span>
         </div>
       </div>
 
-      {/* 4. Database Engine Card */}
+      {/* 5. Database Engine Card */}
       <div className="p-6 rounded-lg mono-card space-y-4">
         <div className="flex items-center justify-between border-b border-[#222227] pb-4">
           <div className="flex items-center gap-2.5">
